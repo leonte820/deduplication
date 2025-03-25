@@ -5,7 +5,7 @@ from datasketch import MinHash, MinHashLSH
 import json
 import argparse
 import shutil
-
+from multiprocessing import Pool, cpu_count
 
 def get_shingles(text, k: int = 20):
     """AI is creating summary for get_shingles
@@ -55,6 +55,13 @@ def delete_empty_files(dir):
                 file.write(f"{filename}\n")
             print(f"Deleted empty file: {file_path}")
 
+def process_file(args):
+    """Process a single file to create MinHash."""
+    filename, file_path, num_perm = args
+    with open(file_path, "r", encoding="utf-8") as file:
+        text = file.read().split(" ")
+    minhash = create_minhash(text, num_perm)
+    return filename, minhash
 
 def find_near_duplicates(folder_path, threshold, num_perm):
     """AI is creating summary for find_near_duplicates
@@ -70,14 +77,17 @@ def find_near_duplicates(folder_path, threshold, num_perm):
     lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
     document_signature = {}
 
-    for filename in os.listdir(folder_path):
-        file_path = os.path.join(folder_path, filename)
-        with open(file_path, "r", encoding="utf-8") as file:
-            text = file.read()
-            text = text.split(" ")
-            m = create_minhash(text, num_perm)
-            lsh.insert(filename, m)
-            document_signature[filename] = m
+    # Get list of files
+    files = [(filename, os.path.join(folder_path, filename), num_perm) for filename in os.listdir(folder_path)]
+
+    # Use multiprocessing to process files in parallel
+    with Pool(processes=cpu_count()) as pool:
+        results = pool.map(process_file, files)
+
+    # Insert into LSH and store signatures
+    for filename, minhash in results:
+        lsh.insert(filename, minhash)
+        document_signature[filename] = minhash
     duplicate = {}
 
     for filename, minhash in document_signature.items():
